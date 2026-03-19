@@ -70,7 +70,7 @@ func TestBuildRepositoryTargetRunsDockerBuild(t *testing.T) {
 		return nil
 	})
 
-	err := buildRepositoryTarget("collectors/crowdstrike")
+	err := buildRepositoryTarget("collectors/crowdstrike", "", 0)
 	if err != nil {
 		t.Fatalf("buildRepositoryTarget returned error: %v", err)
 	}
@@ -97,6 +97,111 @@ func TestBuildRepositoryTargetRunsDockerBuild(t *testing.T) {
 	}
 }
 
+func TestBuildRepositoryTargetWithBranchFetchesAndChecksOutThenBuilds(t *testing.T) {
+	workspace := t.TempDir()
+	setWorkingDir(t, workspace)
+
+	targetPath := filepath.Join(workspace, "repositories", "connectors", "external-import", "crowdstrike")
+	writeDockerfile(t, targetPath)
+
+	gitInvocations := stubBuildGitRunner(t, func(invocation commandInvocation) error {
+		return nil
+	})
+	dockerInvocations := stubBuildRunner(t, func(invocation commandInvocation) error {
+		return nil
+	})
+
+	err := buildRepositoryTarget("connectors/external-import/crowdstrike", "fix/159-add-docs", 0)
+	if err != nil {
+		t.Fatalf("buildRepositoryTarget returned error: %v", err)
+	}
+
+	repoRoot := filepath.Join(workspace, "repositories", "connectors")
+	if len(*gitInvocations) != 2 {
+		t.Fatalf("expected two git invocations, got %d", len(*gitInvocations))
+	}
+	if !samePath((*gitInvocations)[0].Dir, repoRoot) {
+		t.Fatalf("expected git fetch in %q, got %q", repoRoot, (*gitInvocations)[0].Dir)
+	}
+	wantFetch := []string{"fetch", "--all", "--prune", "--tags"}
+	if !reflect.DeepEqual((*gitInvocations)[0].Args, wantFetch) {
+		t.Fatalf("unexpected git fetch args: want %v, got %v", wantFetch, (*gitInvocations)[0].Args)
+	}
+	if !samePath((*gitInvocations)[1].Dir, repoRoot) {
+		t.Fatalf("expected git checkout in %q, got %q", repoRoot, (*gitInvocations)[1].Dir)
+	}
+	wantCheckout := []string{"checkout", "--detach", "origin/fix/159-add-docs"}
+	if !reflect.DeepEqual((*gitInvocations)[1].Args, wantCheckout) {
+		t.Fatalf("unexpected git checkout args: want %v, got %v", wantCheckout, (*gitInvocations)[1].Args)
+	}
+
+	if len(*dockerInvocations) != 1 {
+		t.Fatalf("expected one docker invocation, got %d", len(*dockerInvocations))
+	}
+}
+
+func TestBuildRepositoryTargetWithPRFetchesAndChecksOutThenBuilds(t *testing.T) {
+	workspace := t.TempDir()
+	setWorkingDir(t, workspace)
+
+	targetPath := filepath.Join(workspace, "repositories", "collectors", "crowdstrike")
+	writeDockerfile(t, targetPath)
+
+	gitInvocations := stubBuildGitRunner(t, func(invocation commandInvocation) error {
+		return nil
+	})
+	dockerInvocations := stubBuildRunner(t, func(invocation commandInvocation) error {
+		return nil
+	})
+
+	err := buildRepositoryTarget("collectors/crowdstrike", "", 123)
+	if err != nil {
+		t.Fatalf("buildRepositoryTarget returned error: %v", err)
+	}
+
+	repoRoot := filepath.Join(workspace, "repositories", "collectors")
+	if len(*gitInvocations) != 3 {
+		t.Fatalf("expected three git invocations, got %d", len(*gitInvocations))
+	}
+	wantFetchAll := []string{"fetch", "--all", "--prune", "--tags"}
+	if !reflect.DeepEqual((*gitInvocations)[0].Args, wantFetchAll) {
+		t.Fatalf("unexpected git fetch args: want %v, got %v", wantFetchAll, (*gitInvocations)[0].Args)
+	}
+	wantFetchPR := []string{"fetch", "origin", "pull/123/head"}
+	if !reflect.DeepEqual((*gitInvocations)[1].Args, wantFetchPR) {
+		t.Fatalf("unexpected git fetch pr args: want %v, got %v", wantFetchPR, (*gitInvocations)[1].Args)
+	}
+	wantCheckout := []string{"checkout", "--detach", "FETCH_HEAD"}
+	if !reflect.DeepEqual((*gitInvocations)[2].Args, wantCheckout) {
+		t.Fatalf("unexpected git checkout args: want %v, got %v", wantCheckout, (*gitInvocations)[2].Args)
+	}
+	for i, invocation := range *gitInvocations {
+		if !samePath(invocation.Dir, repoRoot) {
+			t.Fatalf("expected git invocation %d in %q, got %q", i, repoRoot, invocation.Dir)
+		}
+	}
+
+	if len(*dockerInvocations) != 1 {
+		t.Fatalf("expected one docker invocation, got %d", len(*dockerInvocations))
+	}
+}
+
+func TestBuildRepositoryTargetRejectsBranchAndPRTogether(t *testing.T) {
+	workspace := t.TempDir()
+	setWorkingDir(t, workspace)
+
+	targetPath := filepath.Join(workspace, "repositories", "collectors", "crowdstrike")
+	writeDockerfile(t, targetPath)
+
+	err := buildRepositoryTarget("collectors/crowdstrike", "master", 123)
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cannot be used together") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBuildImageTagSanitizesName(t *testing.T) {
 	target := resolvedBuildTarget{Kind: "connector", Name: "CrowdStrike Falcon"}
 	tag := buildImageTag(target)
@@ -119,6 +224,25 @@ func stubBuildRunner(t *testing.T, fn func(commandInvocation) error) *[]commandI
 	}
 	t.Cleanup(func() {
 		runBuildCommand = originalRunner
+	})
+
+	return &invocations
+}
+
+func stubBuildGitRunner(t *testing.T, fn func(commandInvocation) error) *[]commandInvocation {
+	t.Helper()
+
+	originalRunner := runBuildGitCommand
+	invocations := []commandInvocation{}
+	runBuildGitCommand = func(dir string, args ...string) error {
+		copiedArgs := make([]string, len(args))
+		copy(copiedArgs, args)
+		invocation := commandInvocation{Dir: dir, Args: copiedArgs}
+		invocations = append(invocations, invocation)
+		return fn(invocation)
+	}
+	t.Cleanup(func() {
+		runBuildGitCommand = originalRunner
 	})
 
 	return &invocations

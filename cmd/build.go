@@ -15,9 +15,13 @@ type resolvedBuildTarget struct {
 	Name       string
 	Path       string
 	Dockerfile string
+	RepoRoot   string
 }
 
 var runBuildCommand = runDockerCommand
+var runBuildGitCommand = runGitForBuild
+var buildBranch string
+var buildPR int
 
 var buildCmd = &cobra.Command{
 	Use:   "build <target>",
@@ -29,10 +33,12 @@ containing a Dockerfile.
 
 Example:
   go run . build collectors/crowdstrike
-  go run . build connectors/external-import/crowdstrike`,
+  go run . build collectors/crowdstrike --branch master
+  go run . build collectors/crowdstrike --pr 123
+  go run . build connectors/external-import/crowdstrike --pull-request 123`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := buildRepositoryTarget(args[0]); err != nil {
+		if err := buildRepositoryTarget(args[0], buildBranch, buildPR); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
@@ -41,20 +47,65 @@ Example:
 
 func init() {
 	rootCmd.AddCommand(buildCmd)
+	buildCmd.Flags().StringVar(&buildBranch, "branch", "", "branch to checkout before building (example: master)")
+	buildCmd.Flags().IntVar(&buildPR, "pr", 0, "pull request number to checkout before building")
+	buildCmd.Flags().IntVar(&buildPR, "pull-request", 0, "pull request number to checkout before building")
 
 	// ...existing code...
 }
 
-func buildRepositoryTarget(targetRef string) error {
+func buildRepositoryTarget(targetRef string, branch string, pr int) error {
 	target, err := resolveBuildTarget(targetRef)
 	if err != nil {
 		return err
+	}
+	if branch != "" && pr > 0 {
+		return fmt.Errorf("--branch and --pr/--pull-request cannot be used together")
+	}
+	if pr < 0 {
+		return fmt.Errorf("invalid pull request number %d", pr)
+	}
+
+	if branch != "" {
+		if err = checkoutOriginBranch(target, branch); err != nil {
+			return err
+		}
+	}
+	if pr > 0 {
+		if err = checkoutPullRequest(target, pr); err != nil {
+			return err
+		}
 	}
 
 	tag := buildImageTag(target)
 	fmt.Printf("building %s from %s as %s\n", target.Name, target.Path, tag)
 
 	return runBuildCommand("", "build", "-t", tag, "-f", target.Dockerfile, target.Path)
+}
+
+func checkoutOriginBranch(target resolvedBuildTarget, branch string) error {
+	fmt.Printf("updating %s and checking out origin/%s\n", target.RepoRoot, branch)
+	if err := runBuildGitCommand(target.RepoRoot, "fetch", "--all", "--prune", "--tags"); err != nil {
+		return err
+	}
+	if err := runBuildGitCommand(target.RepoRoot, "checkout", "--detach", "origin/"+branch); err != nil {
+		return err
+	}
+	return nil
+}
+
+func checkoutPullRequest(target resolvedBuildTarget, pr int) error {
+	fmt.Printf("updating %s and checking out origin pull request %d\n", target.RepoRoot, pr)
+	if err := runBuildGitCommand(target.RepoRoot, "fetch", "--all", "--prune", "--tags"); err != nil {
+		return err
+	}
+	if err := runBuildGitCommand(target.RepoRoot, "fetch", "origin", fmt.Sprintf("pull/%d/head", pr)); err != nil {
+		return err
+	}
+	if err := runBuildGitCommand(target.RepoRoot, "checkout", "--detach", "FETCH_HEAD"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func resolveBuildTarget(targetRef string) (resolvedBuildTarget, error) {
@@ -123,6 +174,7 @@ func resolveBuildTarget(targetRef string) (resolvedBuildTarget, error) {
 		Name:       parts[len(parts)-1],
 		Path:       repositoryPath,
 		Dockerfile: dockerfile,
+		RepoRoot:   filepath.Join(repositoriesDir, parts[0]),
 	}, nil
 }
 
@@ -158,4 +210,19 @@ func runDockerCommand(dir string, args ...string) error {
 
 	return nil
 
+}
+
+func runGitForBuild(dir string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git %s failed: %w", strings.Join(args, " "), err)
+	}
+
+	return nil
 }
