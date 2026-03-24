@@ -41,7 +41,7 @@ func TestResolveBuildTargetRejectsInvalidPrefix(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid target error, got nil")
 	}
-	if !strings.Contains(err.Error(), "use collectors/... or connectors/...") {
+	if !strings.Contains(err.Error(), "use collectors/<path> or connectors/<path>") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

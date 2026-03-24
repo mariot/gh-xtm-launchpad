@@ -116,7 +116,7 @@ func resolveBuildTarget(targetRef string) (resolvedBuildTarget, error) {
 
 	rawTarget := filepath.ToSlash(targetRef)
 	if strings.HasPrefix(rawTarget, "/") {
-		return resolvedBuildTarget{}, fmt.Errorf("invalid target %q: use collectors/... or connectors/...", targetRef)
+		return resolvedBuildTarget{}, fmt.Errorf("invalid target %q: use collectors/<path> or connectors/<path>", targetRef)
 	}
 	for _, segment := range strings.Split(rawTarget, "/") {
 		if segment == ".." {
@@ -126,12 +126,12 @@ func resolveBuildTarget(targetRef string) (resolvedBuildTarget, error) {
 
 	normalizedTarget := filepath.ToSlash(filepath.Clean(rawTarget))
 	if normalizedTarget == "." || strings.HasPrefix(normalizedTarget, "../") {
-		return resolvedBuildTarget{}, fmt.Errorf("invalid target %q: use collectors/... or connectors/...", targetRef)
+		return resolvedBuildTarget{}, fmt.Errorf("invalid target %q: use collectors/<path> or connectors/<path>", targetRef)
 	}
 
 	parts := strings.Split(normalizedTarget, "/")
 	if len(parts) < 2 {
-		return resolvedBuildTarget{}, fmt.Errorf("invalid target %q: use collectors/... or connectors/...", targetRef)
+		return resolvedBuildTarget{}, fmt.Errorf("invalid target %q: use collectors/<path> or connectors/<path>", targetRef)
 	}
 
 	kind := ""
@@ -141,7 +141,7 @@ func resolveBuildTarget(targetRef string) (resolvedBuildTarget, error) {
 	case "collectors":
 		kind = "collector"
 	default:
-		return resolvedBuildTarget{}, fmt.Errorf("invalid target %q: use collectors/... or connectors/...", targetRef)
+		return resolvedBuildTarget{}, fmt.Errorf("invalid target %q: use collectors/<path> or connectors/<path>", targetRef)
 	}
 
 	repositoriesDir := filepath.Join(workingDir, "repositories")
