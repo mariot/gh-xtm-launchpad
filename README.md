@@ -20,6 +20,28 @@ Managed upstream repositories:
 
 ## Install As a GitHub CLI Extension
 
+### Install from GitHub (no local source checkout)
+
+Use the repository directly:
+
+```bash
+gh extension install mariot/gh-xtm-launchpad
+```
+
+Upgrade later:
+
+```bash
+gh extension upgrade xtm-launchpad
+```
+
+Remove:
+
+```bash
+gh extension remove xtm-launchpad
+```
+
+### Install from a local checkout (for development)
+
 From a local checkout:
 
 ```bash
@@ -147,11 +169,30 @@ Run tests:
 go test ./...
 ```
 
+Run linter locally:
+
+```bash
+./scripts/lint.sh
+```
+
+If needed, install the linter first (macOS):
+
+```bash
+brew install golangci-lint
+```
+
 Build binary:
 
 ```bash
 go build -o gh-xtm-launchpad .
 ```
+
+## CI
+
+On every pull request to `main` and every push to `main`, GitHub Actions runs:
+
+- `golangci-lint`
+- `go test ./...`
 
 ## Project Layout
 
