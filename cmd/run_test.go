@@ -92,18 +92,24 @@ func TestRunRepositoryTargetPromptsAndRunsDocker(t *testing.T) {
 	if len(invocations) != 1 {
 		t.Fatalf("expected one docker invocation, got %d", len(invocations))
 	}
-	wantArgs := []string{
-		"run",
-		"--rm",
-		"-e", "OPENAEV_URL=https://openaev.local",
-		"-e", "COLLECTOR_PERIOD=PT1M",
-		"gh-xtm-launchpad/collector-crowdstrike:latest",
+	envPath := filepath.Join(targetPath, ".env")
+	gotArgs := invocations[0].Args
+	if len(gotArgs) != 5 {
+		t.Fatalf("unexpected docker arg count: want 5, got %d (%v)", len(gotArgs), gotArgs)
 	}
-	if !reflect.DeepEqual(invocations[0].Args, wantArgs) {
-		t.Fatalf("unexpected docker args: want %v, got %v", wantArgs, invocations[0].Args)
+	if gotArgs[0] != "run" || gotArgs[1] != "--rm" || gotArgs[2] != "--env-file" || gotArgs[4] != "gh-xtm-launchpad/collector-crowdstrike:latest" {
+		t.Fatalf("unexpected docker args: %v", gotArgs)
+	}
+	if !samePath(gotArgs[3], envPath) {
+		t.Fatalf("unexpected env-file path: want %q, got %q", envPath, gotArgs[3])
+	}
+	for _, arg := range gotArgs {
+		if strings.Contains(arg, "OPENAEV_TOKEN") || strings.Contains(arg, "OPENAEV_URL=") {
+			t.Fatalf("expected secrets to stay in env file, got argument %q", arg)
+		}
 	}
 
-	envData, err := os.ReadFile(filepath.Join(targetPath, ".env"))
+	envData, err := os.ReadFile(envPath)
 	if err != nil {
 		t.Fatalf("read env file: %v", err)
 	}
@@ -183,14 +189,19 @@ func TestRunRepositoryTargetLoadsValuesFromEnvFile(t *testing.T) {
 		t.Fatalf("expected no prompts when env file contains values, got %q", promptOutput.String())
 	}
 
-	wantArgs := []string{
-		"run",
-		"--rm",
-		"-e", "OPENAEV_URL=https://loaded.example",
-		"-e", "OPENAEV_TOKEN=secret",
-		"gh-xtm-launchpad/collector-crowdstrike:latest",
+	gotArgs := invocations[0].Args
+	if len(gotArgs) != 5 {
+		t.Fatalf("unexpected docker arg count: want 5, got %d (%v)", len(gotArgs), gotArgs)
 	}
-	if !reflect.DeepEqual(invocations[0].Args, wantArgs) {
-		t.Fatalf("unexpected docker args: want %v, got %v", wantArgs, invocations[0].Args)
+	if gotArgs[0] != "run" || gotArgs[1] != "--rm" || gotArgs[2] != "--env-file" || gotArgs[4] != "gh-xtm-launchpad/collector-crowdstrike:latest" {
+		t.Fatalf("unexpected docker args: %v", gotArgs)
+	}
+	if !samePath(gotArgs[3], envPath) {
+		t.Fatalf("unexpected env-file path: want %q, got %q", envPath, gotArgs[3])
+	}
+	for _, arg := range gotArgs {
+		if strings.Contains(arg, "OPENAEV_TOKEN") || strings.Contains(arg, "OPENAEV_URL=") {
+			t.Fatalf("expected secrets to stay in env file, got argument %q", arg)
+		}
 	}
 }

@@ -38,7 +38,8 @@ var runCmd = &cobra.Command{
 	Long: `Runs a previously built image for an explicit target path under repositories/.
 
 The command reads docker-compose.yml in the target directory, prompts for every
-environment variable listed there, then starts the image with docker run.
+environment variable listed there, stores values in an env file, then starts
+the image with docker run --env-file.
 
 Example:
   go run . run collectors/crowdstrike
@@ -87,10 +88,7 @@ func runRepositoryTarget(targetRef string, envFileRef string) error {
 	tag := buildImageTag(target)
 	fmt.Printf("running %s from %s\n", tag, target.Path)
 
-	args := []string{"run", "--rm"}
-	for _, requirement := range requirements {
-		args = append(args, "-e", requirement.Key+"="+envValues[requirement.Key])
-	}
+	args := []string{"run", "--rm", "--env-file", envFilePath}
 	args = append(args, tag)
 
 	return runContainerCommand("", args...)
